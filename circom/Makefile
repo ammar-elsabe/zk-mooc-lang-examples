@@ -1,5 +1,3 @@
-SHELL = zsh
-
 circom = sudoku.circom
 r1cs = sudoku.r1cs
 wasm = sudoku_js/sudoku.wasm
