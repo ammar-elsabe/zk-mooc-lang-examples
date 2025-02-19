@@ -1,149 +1,150 @@
-use ark_ff::PrimeField;
-use ark_r1cs_std::{
-    prelude::{AllocVar, Boolean, EqGadget},
-    uint8::UInt8,
-};
-use ark_relations::r1cs::{ConstraintSystem, SynthesisError};
-use cmp::CmpGadget;
-
 mod alloc;
+mod circuit;
+//use circuit::*;
 mod cmp;
 
-pub struct Puzzle<const N: usize, ConstraintF: PrimeField>([[UInt8<ConstraintF>; N]; N]);
-pub struct Solution<const N: usize, ConstraintF: PrimeField>([[UInt8<ConstraintF>; N]; N]);
-
-fn no_duplicates<'a, T, ConstraintF: PrimeField>(cells: T) -> Result<(), SynthesisError>
-where
-    T: Iterator<Item = &'a UInt8<ConstraintF>> + Clone,
-{
-    //// cloning an iterator just copies internal state, not the elements
-    for (i, cell) in cells.clone().enumerate() {
-        for prior_cell in cells.clone().take(i) {
-            cell.is_neq(prior_cell)?.enforce_equal(&Boolean::TRUE)?;
-        }
-    }
-    Ok(())
-}
-
-fn check_rows<const N: usize, ConstraintF: PrimeField>(
-    solution: &Solution<N, ConstraintF>,
-) -> Result<(), SynthesisError> {
-    for row in &solution.0 {
-        no_duplicates(row.iter())?;
-    }
-    Ok(())
-}
-
-fn check_cols<const N: usize, ConstraintF: PrimeField>(
-    solution: &Solution<N, ConstraintF>,
-) -> Result<(), SynthesisError> {
-    for col in (0..N).map(|idx| solution.0.iter().map(move |row| &row[idx])) {
-        no_duplicates(col)?;
-    }
-    Ok(())
-}
-
-fn check_subgrids<const N: usize, ConstraintF: PrimeField>(
-    solution: &Solution<N, ConstraintF>,
-) -> Result<(), SynthesisError> {
-    for i in 0..N {
-        for j in 0..N {
-            if i % 3 == 0 && j % 3 == 0 {
-                let subgrid = solution.0[i..(i + 3)]
-                    .iter()
-                    .flat_map(|row| &row[j..(j + 3)]);
-                no_duplicates(subgrid)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn check_puzzle_matches_solution<const N: usize, ConstraintF: PrimeField>(
-    puzzle: &Puzzle<N, ConstraintF>,
-    solution: &Solution<N, ConstraintF>,
-) -> Result<(), SynthesisError> {
-    for (p_row, s_row) in puzzle.0.iter().zip(&solution.0) {
-        for (p, s) in p_row.iter().zip(s_row) {
-            // Ensure that the solution `s` is in the range [1, N]
-            s.is_leq(&UInt8::constant(N as u8))?
-                .and(&s.is_geq(&UInt8::constant(1))?)?
-                .enforce_equal(&Boolean::TRUE)?;
-
-            // Ensure that either the puzzle slot is 0, or that
-            // the slot matches equivalent slot in the solution
-            (p.is_eq(s)?.or(&p.is_eq(&UInt8::constant(0))?)?).enforce_equal(&Boolean::TRUE)?;
-        }
-    }
-    Ok(())
-}
-
-fn check_helper<const N: usize, ConstraintF: PrimeField>(
-    puzzle: &[[u8; N]; N],
-    solution: &[[u8; N]; N],
-) -> Result<(), SynthesisError> {
-    let cs = ConstraintSystem::<ConstraintF>::new_ref();
-    let puzzle_var = Puzzle::new_input(cs.clone(), || Ok(puzzle))?;
-    let solution_var = Solution::new_witness(cs.clone(), || Ok(solution))?;
-    check_puzzle_matches_solution(&puzzle_var, &solution_var)?;
-    check_rows(&solution_var)?;
-    check_cols(&solution_var)?;
-    check_subgrids(&solution_var)?;
-    match cs.is_satisfied() {
-        Ok(true) => Ok(()),
-        _ => Err(SynthesisError::Unsatisfiable),
-    }
-}
-
-fn main() {
-    use ark_bls12_381::Fq as F;
-    // Check that it accepts a valid solution.
-    let puzzle = [
-        [0, 0, 0, 8, 6, 0, 2, 3, 0],
-        [7, 0, 5, 0, 0, 0, 9, 0, 8],
-        [0, 6, 0, 3, 0, 7, 0, 4, 0],
-        [0, 2, 0, 7, 0, 8, 0, 5, 0],
-        [0, 7, 8, 5, 0, 0, 0, 0, 0],
-        [4, 0, 0, 9, 0, 6, 0, 7, 0],
-        [3, 0, 9, 0, 5, 0, 7, 0, 2],
-        [0, 4, 0, 1, 0, 9, 0, 8, 0],
-        [5, 0, 7, 0, 8, 0, 0, 9, 4],
-    ];
-    let solution = [
-        [1, 9, 4, 8, 6, 5, 2, 3, 7],
-        [7, 3, 5, 4, 1, 2, 9, 6, 8],
-        [8, 6, 2, 3, 9, 7, 1, 4, 5],
-        [9, 2, 1, 7, 4, 8, 3, 5, 6],
-        [6, 7, 8, 5, 3, 1, 4, 2, 9],
-        [4, 5, 3, 9, 2, 6, 8, 7, 1],
-        [3, 8, 9, 6, 5, 4, 7, 1, 2],
-        [2, 4, 6, 1, 7, 9, 5, 8, 3],
-        [5, 1, 7, 2, 8, 3, 6, 9, 4],
-    ];
-    check_helper::<9, F>(&puzzle, &solution).unwrap();
-
-    // Check that it rejects a solution with a repeated number in a row.
-    let puzzle = [
-        [0, 0, 0, 8, 6, 0, 2, 3, 0],
-        [7, 0, 5, 0, 0, 0, 9, 0, 8],
-        [0, 6, 0, 3, 0, 7, 0, 4, 0],
-        [0, 2, 0, 7, 0, 8, 0, 5, 0],
-        [0, 7, 8, 5, 0, 0, 0, 0, 0],
-        [4, 0, 0, 9, 0, 6, 0, 7, 0],
-        [3, 0, 9, 0, 5, 0, 7, 0, 2],
-        [0, 4, 0, 1, 0, 9, 0, 8, 0],
-        [5, 0, 7, 0, 8, 0, 0, 9, 4],
-    ];
-    let solution = [
-        [1, 1, 4, 8, 6, 5, 2, 3, 7],
-        [7, 3, 5, 4, 1, 2, 9, 6, 8],
-        [8, 6, 2, 3, 9, 7, 1, 4, 5],
-        [9, 2, 1, 7, 4, 8, 3, 5, 6],
-        [6, 7, 8, 5, 3, 1, 4, 2, 9],
-        [4, 5, 3, 9, 2, 6, 8, 7, 1],
-        [3, 8, 9, 6, 5, 4, 7, 1, 2],
-        [2, 4, 6, 1, 7, 9, 5, 8, 3],
-        [5, 1, 7, 2, 8, 3, 6, 9, 4],
-    ];
-    check_helper::<9, F>(&puzzle, &solution).unwrap_err();
-}
+fn main() {}
+//
+//#[derive(Debug)]
+//enum MainError {
+//    ProcessingError(String),
+//    ShouldHavePassed,
+//    ShouldHaveFailed,
+//}
+//
+//impl std::fmt::Display for MainError {
+//    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//        match self {
+//            MainError::ProcessingError(s) => write!(f, "Processing error: {}", s),
+//            MainError::ShouldHavePassed => write!(f, "Should have passed but failed"),
+//            MainError::ShouldHaveFailed => write!(f, "Should have failed but passed"),
+//        }
+//    }
+//}
+//
+//impl Error for MainError {}
+//
+//fn main() -> Result<(), MainError> {
+//
+//    // Check that it rejects a solution with a repeated number in a row.
+//    let solution = [
+//        [1, 1, 4, 8, 6, 5, 2, 3, 7],
+//        [7, 3, 5, 4, 1, 2, 9, 6, 8],
+//        [8, 6, 2, 3, 9, 7, 1, 4, 5],
+//        [9, 2, 1, 7, 4, 8, 3, 5, 6],
+//        [6, 7, 8, 5, 3, 1, 4, 2, 9],
+//        [4, 5, 3, 9, 2, 6, 8, 7, 1],
+//        [3, 8, 9, 6, 5, 4, 7, 1, 2],
+//        [2, 4, 6, 1, 7, 9, 5, 8, 3],
+//        [5, 1, 7, 2, 8, 3, 6, 9, 4],
+//    ];
+//
+//    let Ok(proof) = Groth16::<Bls12_381>::prove(
+//        &pk,
+//        SudokuCircuit {
+//            puzzle,
+//            solution: Some(solution),
+//        },
+//        rng,
+//    ) else {
+//        return Err(MainError::ProcessingError(
+//            "Failed to generate proof".to_string(),
+//        ));
+//    };
+//
+//    let mut serialized = vec![0; proof.serialized_size(ark_serialize::Compress::No)];
+//    let Ok(_) = proof.serialize_uncompressed(&mut serialized[..]) else {
+//        return Err(MainError::ProcessingError(
+//            "Failed to serialize proof".to_string(),
+//        ));
+//    };
+//
+//    // println!("proof: {:?}", proof.serialized_size());
+//    // println!("proof: {:?}", serialized);
+//
+//    let Ok(pr) =
+//        <Groth16<Bls12_381> as SNARK<BlsFr>>::Proof::deserialize_uncompressed(&serialized[..])
+//    else {
+//        return Err(MainError::ProcessingError(
+//            "Failed to deserialize proof".to_string(),
+//        ));
+//    };
+//    assert_eq!(proof, pr);
+//
+//    let mut serialized = vec![0; pk.serialized_size(ark_serialize::Compress::No)];
+//    let Ok(_) = pk.serialize_uncompressed(&mut serialized[..]) else {
+//        return Err(MainError::ProcessingError(
+//            "Failed to serialize proving key".to_string(),
+//        ));
+//    };
+//
+//    // println!("pk-size: {:?}", pk.serialized_size());
+//    // println!("pk: {:?}", serialized);
+//    let Ok(p) =
+//        <Groth16<Bls12_381> as SNARK<BlsFr>>::ProvingKey::deserialize_uncompressed(&serialized[..])
+//    else {
+//        return Err(MainError::ProcessingError(
+//            "Failed to deserialize proving key".to_string(),
+//        ));
+//    };
+//    assert_eq!(pk, p);
+//
+//    let mut serialized = vec![0; vk.serialized_size(ark_serialize::Compress::No)];
+//    let Ok(_) = vk.serialize_uncompressed(&mut serialized[..]) else {
+//        return Err(MainError::ProcessingError(
+//            "Failed to serialize verifying key".to_string(),
+//        ));
+//    };
+//
+//    // println!("vk-size: {:?}", vk.serialized_size());
+//    // println!("vk: {:?}", serialized);
+//
+//    let Ok(v) = <Groth16<Bls12_381> as SNARK<BlsFr>>::VerifyingKey::deserialize_uncompressed(
+//        &serialized[..],
+//    ) else {
+//        return Err(MainError::ProcessingError(
+//            "Failed to deserialize verifying key".to_string(),
+//        ));
+//    };
+//    assert_eq!(vk, v);
+//
+//    match Groth16::<Bls12_381>::verify(
+//        &vk,
+//        puzzle
+//            .as_flattened()
+//            .iter()
+//            .map(|cell| BlsFr::from(*cell))
+//            .collect::<Vec<_>>()
+//            .as_slice(),
+//        &proof,
+//    ) {
+//        Ok(false) => {}
+//        Ok(true) => return Err(MainError::ShouldHaveFailed),
+//        Err(_) => {
+//            return Err(MainError::ProcessingError(
+//                "Failed to verify proof".to_string(),
+//            ))
+//        }
+//    };
+//
+//    match Groth16::<Bls12_381>::verify(
+//        &v,
+//        puzzle
+//            .as_flattened()
+//            .iter()
+//            .map(|cell| BlsFr::from(*cell))
+//            .collect::<Vec<_>>()
+//            .as_slice(),
+//        &pr,
+//    ) {
+//        Ok(false) => {}
+//        Ok(true) => return Err(MainError::ShouldHaveFailed),
+//        Err(_) => {
+//            return Err(MainError::ProcessingError(
+//                "Failed to verify proof".to_string(),
+//            ))
+//        }
+//    }
+//
+//    Ok(())
+//}
