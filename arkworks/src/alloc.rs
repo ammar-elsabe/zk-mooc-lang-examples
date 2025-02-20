@@ -46,4 +46,3 @@ impl<const N: usize, F: PrimeField> AllocVar<[[u8; N]; N], F> for Solution<N, F>
         Ok(solution)
     }
 }
-

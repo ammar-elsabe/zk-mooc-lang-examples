@@ -392,11 +392,11 @@ mod tests {
                 .map(BlsFr::from)
                 .collect::<Vec<_>>()
                 .as_slice(),
-            &proof,
+            &pr,
         ) {
             Ok(true) => {}
             Ok(false) => panic!("Proof rejected but should have been accepted"),
-            Err(err) => panic!("Failed to verify proof with vk: {err}"),
+            Err(err) => panic!("Failed to verify proof with v: {err}"),
         };
     }
 }
