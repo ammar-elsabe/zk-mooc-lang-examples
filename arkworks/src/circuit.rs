@@ -50,9 +50,10 @@ impl<const N: usize, ConstraintF: PrimeField> Solution<N, ConstraintF> {
     }
 }
 
+#[derive(Default)]
 pub struct SudokuCircuit<const N: usize> {
     // The puzzle is public
-    pub puzzle: [[u8; N]; N],
+    pub puzzle: Option<[[u8; N]; N]>,
     // The solution is private
     pub solution: Option<[[u8; N]; N]>,
 }
@@ -84,7 +85,9 @@ impl<const N: usize, ConstraintF: PrimeField> ConstraintSynthesizer<ConstraintF>
         self,
         cs: ark_relations::r1cs::ConstraintSystemRef<ConstraintF>,
     ) -> ark_relations::r1cs::Result<()> {
-        let puzzle_var = Puzzle::new_input(cs.clone(), || Ok(self.puzzle))?;
+        let puzzle_var = Puzzle::new_input(cs.clone(), || {
+            self.puzzle.ok_or(SynthesisError::AssignmentMissing)
+        })?;
         let solution_var = Solution::new_witness(cs.clone(), || {
             self.solution.ok_or(SynthesisError::AssignmentMissing)
         })?;
@@ -120,7 +123,7 @@ mod tests {
         ];
 
         let circuit = SudokuCircuit::<9> {
-            puzzle,
+            puzzle: None,
             solution: None,
         };
 
@@ -147,7 +150,7 @@ mod tests {
         let proof = Groth16::<Bls12_381>::prove(
             &pk,
             SudokuCircuit {
-                puzzle,
+                puzzle: Some(puzzle),
                 solution: Some(solution),
             },
             rng,
@@ -199,7 +202,7 @@ mod tests {
         ];
 
         let circuit = SudokuCircuit::<9> {
-            puzzle: fake_puzzle,
+            puzzle: None,
             solution: None,
         };
 
@@ -226,7 +229,7 @@ mod tests {
         let proof = Groth16::<Bls12_381>::prove(
             &pk,
             SudokuCircuit {
-                puzzle: fake_puzzle,
+                puzzle: Some(fake_puzzle),
                 solution: Some(solution),
             },
             rng,
@@ -283,7 +286,7 @@ mod tests {
         ];
 
         let circuit = SudokuCircuit::<9> {
-            puzzle,
+            puzzle: None,
             solution: None,
         };
 
@@ -310,7 +313,7 @@ mod tests {
         let proof = Groth16::<Bls12_381>::prove(
             &pk,
             SudokuCircuit {
-                puzzle,
+                puzzle: Some(puzzle),
                 solution: Some(solution),
             },
             rng,
